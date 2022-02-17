@@ -1,5 +1,5 @@
 pub mod compile;
-use codegen::CodeGen;
+// use codegen::CodeGen;
 pub use libloading;
 use var::{Var, RECORDER};
 pub mod codegen;
@@ -43,26 +43,27 @@ impl DFunc {
     }
 }
 pub fn jit<F: FnOnce(Vec<Var>) -> Vec<Var>>(func_name: &str, ninputs: usize, f: F) -> Func {
-    let inputs = (0..ninputs).map(|i| Var::arg(i, "f32")).collect();
-    let outputs = f(inputs);
-    RECORDER.with(|r| {
-        let r = r.borrow();
-        let outputs: Vec<_> = outputs.iter().map(|v| v.node).collect();
-        let program = r.collect(&outputs);
-        let cg = CodeGen::new(program);
-        let source = cg.gen();
-        let path = compile::compile(source, func_name).unwrap();
-        unsafe {
-            let lib = libloading::Library::new(path).unwrap();
-            let p: libloading::Symbol<FuncCFnPtr> = lib.get(b"jit_main\0").unwrap();
-            let p: libloading::Symbol<'static, FuncCFnPtr> = std::mem::transmute(p);
-            Func {
-                size: (ninputs, outputs.len()),
-                _lib: lib,
-                p,
-            }
-        }
-    })
+    // let inputs = (0..ninputs).map(|i| Var::arg(i, "f32")).collect();
+    // let outputs = f(inputs);
+    // RECORDER.with(|r| {
+    //     let r = r.borrow();
+    //     let outputs: Vec<_> = outputs.iter().map(|v| v.node).collect();
+    //     let program = r.collect(&outputs);
+    //     let cg = CodeGen::new(program);
+    //     let source = cg.gen();
+    //     let path = compile::compile(source, func_name).unwrap();
+    //     unsafe {
+    //         let lib = libloading::Library::new(path).unwrap();
+    //         let p: libloading::Symbol<FuncCFnPtr> = lib.get(b"jit_main\0").unwrap();
+    //         let p: libloading::Symbol<'static, FuncCFnPtr> = std::mem::transmute(p);
+    //         Func {
+    //             size: (ninputs, outputs.len()),
+    //             _lib: lib,
+    //             p,
+    //         }
+    //     }
+    // })
+    todo!()
 }
 pub fn grad(f: &Func, vars: &[usize]) -> DFunc {
     todo!()
@@ -71,32 +72,32 @@ pub fn grad(f: &Func, vars: &[usize]) -> DFunc {
 //     todo!()
 // }
 
-mod test {
-    #[test]
-    fn test_jit() {
-        use super::*;
-        let f = jit("add2", 2, |args| vec![args[0] + args[1]]);
-        let mut out = [0.0f32];
-        f.call(&[2.0, 3.0], &mut out);
-        assert!((out[0] - 5.0).abs() < 1e-4);
-    }
-    #[test]
-    fn test_cond() {
-        use super::*;
-        let f = jit("max", 2, |args| {
-            let out = args[0].cmpgt(args[1]).cond(
-                || {
-                    let x = args[0] * args[0];
-                    vec![x]
-                },
-                || vec![args[1]],
-            );
-            out
-        });
-        let mut out = [0.0f32];
-        f.call(&[2.0, 3.0], &mut out);
-        assert!((out[0] - 3.0).abs() < 1e-4);
-        f.call(&[4.0, 3.0], &mut out);
-        assert!((out[0] - 16.0).abs() < 1e-4);
-    }
-}
+// mod test {
+//     #[test]
+//     fn test_jit() {
+//         use super::*;
+//         let f = jit("add2", 2, |args| vec![args[0] + args[1]]);
+//         let mut out = [0.0f32];
+//         f.call(&[2.0, 3.0], &mut out);
+//         assert!((out[0] - 5.0).abs() < 1e-4);
+//     }
+//     #[test]
+//     fn test_cond() {
+//         use super::*;
+//         let f = jit("max", 2, |args| {
+//             let out = args[0].cmpgt(args[1]).cond(
+//                 || {
+//                     let x = args[0] * args[0];
+//                     vec![x]
+//                 },
+//                 || vec![args[1]],
+//             );
+//             out
+//         });
+//         let mut out = [0.0f32];
+//         f.call(&[2.0, 3.0], &mut out);
+//         assert!((out[0] - 3.0).abs() < 1e-4);
+//         f.call(&[4.0, 3.0], &mut out);
+//         assert!((out[0] - 16.0).abs() < 1e-4);
+//     }
+// }

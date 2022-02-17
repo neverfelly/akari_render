@@ -7,101 +7,112 @@ use std::{
 };
 
 use smallvec::{smallvec, SmallVec};
-pub(crate) struct Program {
-    pub(crate) entry: Rc<BasicBlock>,
-    pub(crate) exit: Rc<BasicBlock>,
-    pub(crate) nodes: HashMap<usize, Node>,
-    pub(crate) node2bb: HashMap<usize, Rc<BasicBlock>>,
-    pub(crate) outputs: Vec<usize>,
-}
+// pub(crate) struct Program {
+//     pub(crate) entry: Rc<BasicBlock>,
+//     pub(crate) exit: Rc<BasicBlock>,
+//     pub(crate) nodes: HashMap<usize, Node>,
+//     pub(crate) node2bb: HashMap<usize, Rc<BasicBlock>>,
+//     pub(crate) outputs: Vec<usize>,
+// }
 
 pub(crate) struct Recorder {
     nodes: Vec<Node>,
     bbs: Vec<Rc<BasicBlock>>,
+    types: HashMap<&'static str, Rc<Type>>,
 }
 impl Recorder {
+    fn type_from_name(&mut self, name: &'static str) -> Rc<Type> {
+        if let Some(t) = self.types.get(name) {
+            t.clone()
+        } else {
+            let t = Rc::new(Type::Atom(name.into()));
+            self.types.insert(name, t.clone());
+            t
+        }
+    }
     pub fn new() -> Self {
         Self {
             nodes: vec![],
             bbs: vec![Rc::new(BasicBlock::new())],
+            types: HashMap::new(),
         }
     }
 }
-struct ProgramBuilder<'a> {
-    recorder: &'a Recorder,
-    nodes: HashMap<usize, Node>,
-    bbs: HashMap<*const BasicBlock, Rc<BasicBlock>>,
-    entry: Option<Rc<BasicBlock>>,
-    node2bb: HashMap<usize, Rc<BasicBlock>>,
-}
-impl<'a> ProgramBuilder<'a> {
-    fn collect(&mut self, node: usize) {
-        if self.nodes.contains_key(&node) {
-            return;
-        }
-        let mut new_node = self.recorder.nodes[node].clone();
-        match &mut new_node {
-            Node::Phi { bb0, bb1, .. } => {
-                *bb0 = self.bbs.get(&Rc::as_ptr(bb0)).unwrap().clone();
-                *bb1 = self.bbs.get(&Rc::as_ptr(bb1)).unwrap().clone();
-            }
-            Node::Cond { x, y, .. } => {
-                *x = Rc::downgrade(self.bbs.get(&Rc::as_ptr(&x.upgrade().unwrap())).unwrap());
-                *y = Rc::downgrade(self.bbs.get(&Rc::as_ptr(&y.upgrade().unwrap())).unwrap());
-            }
-            _ => {}
-        }
-        self.nodes.insert(node, new_node);
-        let deps = self.recorder.nodes[node].depends();
-        for dep in deps {
-            self.collect(dep);
-        }
-    }
-    fn collect_bbs(&mut self, bb: &Rc<BasicBlock>) -> Rc<BasicBlock> {
-        if let Some(bb) = self.bbs.get(&Rc::as_ptr(bb)) {
-            return bb.clone();
-        }
-        let mut new_bb = Rc::new(BasicBlock::new());
-        {
-            let new_bb = Rc::get_mut(&mut new_bb).unwrap();
-            new_bb.outputs = bb.outputs.clone();
-            if let Some(merge) = &bb.merge {
-                new_bb.merge = Some(Rc::downgrade(self.bbs.get(&Weak::as_ptr(merge)).unwrap()));
-            }
-        }
-        self.bbs.insert(Rc::as_ptr(bb), new_bb.clone());
-        for pred in &bb.preds {
-            let new_pred = self.collect_bbs(pred);
-            unsafe {
-                let new_bb = &mut *(Rc::as_ptr(&new_bb) as *mut BasicBlock);
-                new_bb.preds.push(new_pred.clone());
-            }
-            unsafe {
-                let new_pred = &mut *(Rc::as_ptr(&new_pred) as *mut BasicBlock);
-                new_pred.succs.push(Rc::downgrade(&new_bb));
-            }
-        }
-        if bb.preds.is_empty() {
-            assert!(self.entry.is_none());
-            self.entry = Some(new_bb.clone());
-        }
-        new_bb
-    }
-    fn add_node_to_bb(&mut self) {
-        for (old_bb, bb) in &mut self.bbs {
-            unsafe {
-                let old_bb = &**old_bb;
-                let bb_ = &mut *(Rc::as_ptr(bb) as *mut BasicBlock);
-                for n in &old_bb.nodes {
-                    if let Some(_) = self.nodes.get(n) {
-                        bb_.nodes.push(*n);
-                        self.node2bb.insert(*n, bb.clone());
-                    }
-                }
-            }
-        }
-    }
-}
+// struct ProgramBuilder<'a> {
+//     recorder: &'a Recorder,
+//     nodes: HashMap<usize, Node>,
+//     bbs: HashMap<*const BasicBlock, Rc<BasicBlock>>,
+//     entry: Option<Rc<BasicBlock>>,
+//     node2bb: HashMap<usize, Rc<BasicBlock>>,
+// }
+// impl<'a> ProgramBuilder<'a> {
+//     fn collect(&mut self, node: usize) {
+//         if self.nodes.contains_key(&node) {
+//             return;
+//         }
+//         let mut new_node = self.recorder.nodes[node].clone();
+//         match &mut new_node {
+//             Node::Phi { bb0, bb1, .. } => {
+//                 *bb0 = self.bbs.get(&Rc::as_ptr(bb0)).unwrap().clone();
+//                 *bb1 = self.bbs.get(&Rc::as_ptr(bb1)).unwrap().clone();
+//             }
+//             Node::Cond { x, y, .. } => {
+//                 *x = Rc::downgrade(self.bbs.get(&Rc::as_ptr(&x.upgrade().unwrap())).unwrap());
+//                 *y = Rc::downgrade(self.bbs.get(&Rc::as_ptr(&y.upgrade().unwrap())).unwrap());
+//             }
+//             _ => {}
+//         }
+//         self.nodes.insert(node, new_node);
+//         let deps = self.recorder.nodes[node].depends();
+//         for dep in deps {
+//             self.collect(dep);
+//         }
+//     }
+//     fn collect_bbs(&mut self, bb: &Rc<BasicBlock>) -> Rc<BasicBlock> {
+//         if let Some(bb) = self.bbs.get(&Rc::as_ptr(bb)) {
+//             return bb.clone();
+//         }
+//         let mut new_bb = Rc::new(BasicBlock::new());
+//         {
+//             let new_bb = Rc::get_mut(&mut new_bb).unwrap();
+//             new_bb.outputs = bb.outputs.clone();
+//             if let Some(merge) = &bb.merge {
+//                 new_bb.merge = Some(Rc::downgrade(self.bbs.get(&Weak::as_ptr(merge)).unwrap()));
+//             }
+//         }
+//         self.bbs.insert(Rc::as_ptr(bb), new_bb.clone());
+//         for pred in &bb.preds {
+//             let new_pred = self.collect_bbs(pred);
+//             unsafe {
+//                 let new_bb = &mut *(Rc::as_ptr(&new_bb) as *mut BasicBlock);
+//                 new_bb.preds.push(new_pred.clone());
+//             }
+//             unsafe {
+//                 let new_pred = &mut *(Rc::as_ptr(&new_pred) as *mut BasicBlock);
+//                 new_pred.succs.push(Rc::downgrade(&new_bb));
+//             }
+//         }
+//         if bb.preds.is_empty() {
+//             assert!(self.entry.is_none());
+//             self.entry = Some(new_bb.clone());
+//         }
+//         new_bb
+//     }
+//     fn add_node_to_bb(&mut self) {
+//         for (old_bb, bb) in &mut self.bbs {
+//             unsafe {
+//                 let old_bb = &**old_bb;
+//                 let bb_ = &mut *(Rc::as_ptr(bb) as *mut BasicBlock);
+//                 for n in &old_bb.nodes {
+//                     if let Some(_) = self.nodes.get(n) {
+//                         bb_.nodes.push(*n);
+//                         self.node2bb.insert(*n, bb.clone());
+//                     }
+//                 }
+//             }
+//         }
+//     }
+// }
 impl Recorder {
     fn add_node(&mut self, node: Node) -> usize {
         let i = self.nodes.len();
@@ -113,45 +124,45 @@ impl Recorder {
         }
         i
     }
-    pub(crate) fn collect(&self, outputs: &[usize]) -> Rc<Program> {
-        let mut prog = ProgramBuilder {
-            recorder: self,
-            nodes: HashMap::new(),
-            bbs: HashMap::new(),
-            entry: None,
-            node2bb: HashMap::new(),
-        };
-        // for bb in &self.bbs{
-        //     println!("{}",bb.nodes.len());
-        // }
-        let exit = prog.collect_bbs(self.bbs.last().unwrap());
-        for o in outputs {
-            prog.collect(*o);
-        }
-        // for (_, bb) in &prog.bbs {
-        //     prog.collect(*bb.nodes.last().unwrap());
-        // }
-        {
-            let terms: Vec<_> = prog
-                .bbs
-                .iter()
-                .map(|(bb, _)| unsafe { &**bb })
-                .filter(|bb| !bb.nodes.is_empty())
-                .map(|bb| *bb.nodes.last().unwrap())
-                .collect();
-            for term in terms {
-                prog.collect(term);
-            }
-        }
-        prog.add_node_to_bb();
-        Rc::new(Program {
-            nodes: prog.nodes,
-            outputs: outputs.to_vec(),
-            exit,
-            entry: prog.entry.unwrap(),
-            node2bb: prog.node2bb,
-        })
-    }
+    // pub(crate) fn collect(&self, outputs: &[usize]) -> Rc<Program> {
+    //     let mut prog = ProgramBuilder {
+    //         recorder: self,
+    //         nodes: HashMap::new(),
+    //         bbs: HashMap::new(),
+    //         entry: None,
+    //         node2bb: HashMap::new(),
+    //     };
+    //     // for bb in &self.bbs{
+    //     //     println!("{}",bb.nodes.len());
+    //     // }
+    //     let exit = prog.collect_bbs(self.bbs.last().unwrap());
+    //     for o in outputs {
+    //         prog.collect(*o);
+    //     }
+    //     // for (_, bb) in &prog.bbs {
+    //     //     prog.collect(*bb.nodes.last().unwrap());
+    //     // }
+    //     {
+    //         let terms: Vec<_> = prog
+    //             .bbs
+    //             .iter()
+    //             .map(|(bb, _)| unsafe { &**bb })
+    //             .filter(|bb| !bb.nodes.is_empty())
+    //             .map(|bb| *bb.nodes.last().unwrap())
+    //             .collect();
+    //         for term in terms {
+    //             prog.collect(term);
+    //         }
+    //     }
+    //     prog.add_node_to_bb();
+    //     Rc::new(Program {
+    //         nodes: prog.nodes,
+    //         outputs: outputs.to_vec(),
+    //         exit,
+    //         entry: prog.entry.unwrap(),
+    //         node2bb: prog.node2bb,
+    //     })
+    // }
 }
 thread_local! {
     pub(crate) static RECORDER: RefCell<Recorder> = RefCell::new(Recorder::new());
@@ -176,61 +187,95 @@ impl BasicBlock {
         }
     }
 }
+#[derive(Clone, PartialEq, Eq)]
+pub enum Type {
+    Atom(String),
+    Tuple(Vec<Rc<Type>>),
+}
+impl Type {
+    pub fn is_float(&self) -> bool {
+        match self {
+            Type::Atom(x) => match x.as_str() {
+                "f32" | "f64" => true,
+                _ => false,
+            },
+            _ => false,
+        }
+    }
+    pub fn is_int(&self) -> bool {
+        match self {
+            Type::Atom(x) => match x.as_str() {
+                "u8" | "u16" | "u32" | "u64" | "usize" | "i8" | "i16" | "i32" | "i64" | "isize" => {
+                    true
+                }
+                _ => false,
+            },
+            _ => false,
+        }
+    }
+}
 #[derive(Clone)]
 pub(crate) enum Node {
+    Tuple {
+        ty: Rc<Type>,
+        values: Vec<usize>,
+    },
+    Extract {
+        ty: Rc<Type>,
+        tuple: usize,
+        index: usize,
+    },
     Arg {
-        ty: String,
+        ty: Rc<Type>,
         idx: usize,
     },
     Const {
-        ty: String,
+        ty: Rc<Type>,
         val: String,
     },
     Cast {
-        from: String,
-        to: String,
+        from: Rc<Type>,
+        to: Rc<Type>,
         val: usize,
     },
     Binary {
-        ty: String,
+        ty: Rc<Type>,
         op: &'static str,
         lhs: usize,
         rhs: usize,
     },
     Unary {
-        ty: String,
+        ty: Rc<Type>,
         op: &'static str,
         val: usize,
     },
     Func {
-        ty: String,
+        ty: Rc<Type>,
         f: &'static str,
         args: SmallVec<[usize; 3]>,
     },
     Select {
-        ty: String,
+        ty: Rc<Type>,
         cond: usize,
         x: usize,
         y: usize,
     },
     Cond {
-        // ty: Vec<String>,
+        ty: Rc<Type>,
         cond: usize,
         x: Weak<BasicBlock>,
         y: Weak<BasicBlock>,
     },
-    Phi {
-        ty: String,
-        bb0: Rc<BasicBlock>,
-        out0: usize, // n-th output!!!
-        bb1: Rc<BasicBlock>,
-        out1: usize,
-    },
 }
 impl Node {
-    pub(crate) fn ty(&self) -> &str {
+    pub(crate) fn ty(&self) -> &Rc<Type> {
         match self {
-            Node::Cond { .. } => panic!(),
+            Node::Tuple { ty, .. } => ty,
+            Node::Extract { ty, index, .. } => match &**ty {
+                Type::Tuple(t) => &t[*index],
+                _ => unreachable!(),
+            },
+            Node::Cond { ty, .. } => ty,
             Node::Arg { ty, .. } => ty,
             Node::Const { ty, .. } => ty,
             Node::Cast { to, .. } => to,
@@ -238,70 +283,67 @@ impl Node {
             Node::Unary { ty, .. } => ty,
             Node::Select { ty, .. } => ty,
             Node::Func { ty, .. } => ty,
-            Node::Phi { ty, .. } => ty,
         }
     }
-    pub(crate) fn depends(&self) -> SmallVec<[usize; 3]> {
-        match self {
-            Node::Cond { cond, .. } => smallvec![*cond],
-            Node::Arg { ty: _, idx: _ } => smallvec![],
-            Node::Const { ty: _, val: _ } => smallvec![],
-            Node::Cast {
-                from: _,
-                to: _,
-                val,
-            } => smallvec![*val],
-            Node::Binary {
-                ty: _,
-                op: _,
-                lhs,
-                rhs,
-            } => smallvec![*lhs, *rhs],
-            Node::Unary { ty: _, op: _, val } => smallvec![*val],
-            Node::Select { ty: _, cond, x, y } => smallvec![*cond, *x, *y],
-            Node::Func { args, .. } => args.clone(),
-            Node::Phi {
-                bb0,
-                bb1,
-                out0,
-                out1,
-                ..
-            } => {
-                smallvec![bb0.outputs[*out0], bb1.outputs[*out1]]
-            }
-        }
+    // pub(crate) fn depends(&self) -> SmallVec<[usize; 3]> {
+    //     match self {
+    //         Node::Cond { cond, .. } => smallvec![*cond],
+    //         Node::Arg { ty: _, idx: _ } => smallvec![],
+    //         Node::Const { ty: _, val: _ } => smallvec![],
+    //         Node::Cast {
+    //             from: _,
+    //             to: _,
+    //             val,
+    //         } => smallvec![*val],
+    //         Node::Binary {
+    //             ty: _,
+    //             op: _,
+    //             lhs,
+    //             rhs,
+    //         } => smallvec![*lhs, *rhs],
+    //         Node::Unary { ty: _, op: _, val } => smallvec![*val],
+    //         Node::Select { ty: _, cond, x, y } => smallvec![*cond, *x, *y],
+    //         Node::Func { args, .. } => args.clone(),
+    //         Node::Tuple { ty, values } => todo!(),
+    //         Node::Extract { ty, tuple, index } => todo!(),
+
+    //     }
+    // }
+}
+
+fn type_from_name(x: &'static str) -> Rc<Type> {
+    RECORDER.with(|r| {
+        let mut r = r.borrow_mut();
+        r.type_from_name(x)
+    })
+}
+fn type_from_ptr(x: *const Type) -> Rc<Type> {
+    unsafe {
+        Rc::increment_strong_count(x);
+        Rc::from_raw(x)
     }
 }
 #[derive(Clone, Copy)]
-pub struct Var {
+pub struct Var<'a> {
     pub(crate) node: usize,
-    pub(crate) ty: &'static str,
+    pub(crate) ty: *const Type,
+    phantom: PhantomData<&'a Type>,
 }
-impl Var {
+impl<'a> Var<'a> {
     pub fn arg(i: usize, ty: &'static str) -> Self {
+        let ty = type_from_name(ty);
         let node = Node::Arg {
-            ty: ty.into(),
+            ty: ty.clone(),
             idx: i,
         };
         RECORDER.with(|r| {
             let mut r = r.borrow_mut();
             Self {
                 node: r.add_node(node),
-                ty,
+                ty: Rc::as_ptr(&ty),
+                phantom: PhantomData {},
             }
         })
-    }
-    pub fn is_float(&self) -> bool {
-        match self.ty {
-            "f32" | "f64" => true,
-            _ => false,
-        }
-    }
-    pub fn is_int(&self) -> bool {
-        match self.ty {
-            "u8" | "u16" | "u32" | "u64" | "usize" | "i8" | "i16" | "i32" | "i64" | "isize" => true,
-            _ => false,
-        }
     }
 }
 
@@ -338,103 +380,111 @@ impl Var {
 //     };
 // }
 
-impl Var {
+impl<'a> Var<'a> {
     pub fn cast(&self, ty: &'static str) -> Self {
+        let to = type_from_name(ty);
         RECORDER.with(|r| {
             let mut r = r.borrow_mut();
             let cast = Node::Cast {
-                to: ty.into(),
-                from: self.ty.into(),
+                to: to.clone(),
+                from: type_from_ptr(self.ty),
                 val: self.node,
             };
             Self {
                 node: r.add_node(cast),
-                ty,
+                ty: Rc::as_ptr(&to),
+                phantom: PhantomData {},
             }
         })
     }
-    pub fn cond<F1: Fn() -> Vec<Var>, F2: Fn() -> Vec<Var>>(
-        &self,
-        then: F1,
-        else_: F2,
-    ) -> Vec<Var> {
-        assert_eq!(self.ty, "bool");
-        let (pred, b0, b1) = RECORDER.with(|r| {
-            let mut r = r.borrow_mut();
-            let mut b0 = BasicBlock::new();
-            let mut b1 = BasicBlock::new();
-            b0.preds.push(r.bbs.last().unwrap().clone());
-            b1.preds.push(r.bbs.last().unwrap().clone());
-            let b0 = Rc::new(b0);
-            let b1 = Rc::new(b1);
-            let cond = Node::Cond {
-                cond: self.node,
-                x: Rc::downgrade(&b0),
-                y: Rc::downgrade(&b1),
-            };
-            r.add_node(cond.clone());
-            let pred = r.bbs.last().unwrap().clone();
-            r.bbs.push(b0.clone());
-            (pred, b0, b1)
-        });
-        let a = then();
-        for a in &a {
-            unsafe {
-                let b0 = &mut *(b0.as_ref() as *const BasicBlock as *mut BasicBlock);
-                b0.outputs.push(a.node);
-            }
-        }
-        RECORDER.with(|r| {
-            let mut r = r.borrow_mut();
-            r.bbs.push(b1.clone());
-        });
-        let b = else_();
-        for b in &b {
-            unsafe {
-                let b1 = &mut *(b1.as_ref() as *const BasicBlock as *mut BasicBlock);
-                b1.outputs.push(b.node);
-            }
-        }
-        assert_eq!(a.len(), b.len());
-        RECORDER.with(|r| {
-            let mut r = r.borrow_mut();
-            let mut merge = BasicBlock::new();
-            merge.preds.push(b0.clone());
-            merge.preds.push(b1.clone());
-            let merge = Rc::new(merge);
-            unsafe {
-                let pred = &mut *(pred.as_ref() as *const BasicBlock as *mut BasicBlock);
-                pred.merge = Some(Rc::downgrade(&merge));
-            }
-            r.bbs.push(merge);
-            a.iter()
-                .zip(b.iter())
-                .enumerate()
-                .map(|(i, (x, y))| {
-                    assert_eq!(
-                        x.ty, y.ty,
-                        "if stmt returning {} and {} for output {}",
-                        x.ty, y.ty, i
-                    );
-                    let nx = r.nodes[x.node].clone();
-                    let ny = r.nodes[y.node].clone();
-                    assert_eq!(nx.ty(), ny.ty());
-                    let phi = Node::Phi {
-                        bb0: b0.clone(),
-                        bb1: b1.clone(),
-                        out0: i,
-                        out1: i,
-                        ty: nx.ty().into(),
-                    };
-                    let phi = r.add_node(phi);
-                    Var {
-                        ty: x.ty,
-                        node: phi,
-                    }
-                })
-                .collect::<Vec<_>>()
-        })
+    pub fn is_int(&self) -> bool {
+        unsafe { self.ty.as_ref().unwrap().is_int() }
     }
+    pub fn is_float(&self) -> bool {
+        unsafe { self.ty.as_ref().unwrap().is_float() }
+    }
+    // pub fn cond<F1: Fn() -> Vec<Var>, F2: Fn() -> Vec<Var>>(
+    //     &self,
+    //     then: F1,
+    //     else_: F2,
+    // ) -> Vec<Var> {
+    //     assert_eq!(self.ty, "bool");
+    //     let (pred, b0, b1) = RECORDER.with(|r| {
+    //         let mut r = r.borrow_mut();
+    //         let mut b0 = BasicBlock::new();
+    //         let mut b1 = BasicBlock::new();
+    //         b0.preds.push(r.bbs.last().unwrap().clone());
+    //         b1.preds.push(r.bbs.last().unwrap().clone());
+    //         let b0 = Rc::new(b0);
+    //         let b1 = Rc::new(b1);
+    //         let cond = Node::Cond {
+    //             cond: self.node,
+    //             x: Rc::downgrade(&b0),
+    //             y: Rc::downgrade(&b1),
+    //         };
+    //         r.add_node(cond.clone());
+    //         let pred = r.bbs.last().unwrap().clone();
+    //         r.bbs.push(b0.clone());
+    //         (pred, b0, b1)
+    //     });
+    //     let a = then();
+    //     for a in &a {
+    //         unsafe {
+    //             let b0 = &mut *(b0.as_ref() as *const BasicBlock as *mut BasicBlock);
+    //             b0.outputs.push(a.node);
+    //         }
+    //     }
+    //     RECORDER.with(|r| {
+    //         let mut r = r.borrow_mut();
+    //         r.bbs.push(b1.clone());
+    //     });
+    //     let b = else_();
+    //     for b in &b {
+    //         unsafe {
+    //             let b1 = &mut *(b1.as_ref() as *const BasicBlock as *mut BasicBlock);
+    //             b1.outputs.push(b.node);
+    //         }
+    //     }
+    //     assert_eq!(a.len(), b.len());
+    //     RECORDER.with(|r| {
+    //         let mut r = r.borrow_mut();
+    //         let mut merge = BasicBlock::new();
+    //         merge.preds.push(b0.clone());
+    //         merge.preds.push(b1.clone());
+    //         let merge = Rc::new(merge);
+    //         unsafe {
+    //             let pred = &mut *(pred.as_ref() as *const BasicBlock as *mut BasicBlock);
+    //             pred.merge = Some(Rc::downgrade(&merge));
+    //         }
+    //         r.bbs.push(merge);
+    //         a.iter()
+    //             .zip(b.iter())
+    //             .enumerate()
+    //             .map(|(i, (x, y))| {
+    //                 assert_eq!(
+    //                     x.ty, y.ty,
+    //                     "if stmt returning {} and {} for output {}",
+    //                     x.ty, y.ty, i
+    //                 );
+    //                 let nx = r.nodes[x.node].clone();
+    //                 let ny = r.nodes[y.node].clone();
+    //                 assert_eq!(nx.ty(), ny.ty());
+    //                 let phi = Node::Phi {
+    //                     bb0: b0.clone(),
+    //                     bb1: b1.clone(),
+    //                     out0: i,
+    //                     out1: i,
+    //                     ty: nx.ty().into(),
+    //                 };
+    //                 let phi = r.add_node(phi);
+    //                 Var {
+    //                     ty: x.ty,
+    //                     node: phi,
+    //                 }
+    //             })
+    //             .collect::<Vec<_>>()
+    //     })
+    // }
 }
 
 // impl_cond!(T0,);
@@ -449,17 +499,18 @@ impl Var {
 
 macro_rules! impl_from {
     ($t:ty) => {
-        impl From<$t> for Var {
+        impl<'a> From<$t> for Var<'a> {
             fn from(x: $t) -> Self {
                 let node = Node::Const {
-                    ty: stringify!($t).into(),
+                    ty: type_from_name(stringify!($t)),
                     val: x.to_string(),
                 };
                 RECORDER.with(|r| {
                     let mut r = r.borrow_mut();
                     Self {
                         node: r.add_node(node),
-                        ty: stringify!($t),
+                        ty: Rc::as_ptr(&type_from_name(stringify!($t))),
+                        phantom: PhantomData {},
                     }
                 })
             }
@@ -468,12 +519,12 @@ macro_rules! impl_from {
 }
 macro_rules! impl_binary_ {
     ($op:ident, $func:ident, $tok:tt, $check:expr) => {
-        impl std::ops::$op<Var> for Var {
+        impl<'a> std::ops::$op<Var<'a>> for Var<'a> {
             type Output = Self;
             fn $func(self, rhs: Self) -> Self::Output {
                 assert_eq!(self.ty, rhs.ty);
                 let node = Node::Binary {
-                    ty: self.ty.into(),
+                    ty: type_from_ptr(self.ty),
                     op: stringify!($tok),
                     lhs: self.node,
                     rhs: rhs.node,
@@ -484,6 +535,7 @@ macro_rules! impl_binary_ {
                     Self {
                         node: r.add_node(node),
                         ty: self.ty,
+                        phantom: PhantomData {},
                     }
                 })
             }
@@ -497,15 +549,15 @@ macro_rules! impl_binary_common {
 }
 macro_rules! impl_binary_scalar {
     ($t:ty,$op:ident, $func:ident, $tok:tt) => {
-        impl std::ops::$op<$t> for Var {
+        impl<'a> std::ops::$op<$t> for Var<'a> {
             type Output = Self;
             fn $func(self, rhs: $t) -> Self::Output {
                 self $tok Self::from(rhs)
             }
         }
-        impl std::ops::$op<Var> for $t {
-            type Output = Var;
-            fn $func(self, rhs: Var) -> Self::Output {
+        impl<'a> std::ops::$op<Var<'a>> for $t {
+            type Output = Var<'a>;
+            fn $func(self, rhs: Var<'a>) -> Self::Output {
                Var::from(self) $tok rhs
             }
         }
@@ -513,11 +565,11 @@ macro_rules! impl_binary_scalar {
 }
 macro_rules! impl_func1_f {
     ($func:ident) => {
-        impl Var {
+        impl<'a> Var<'a> {
             pub fn $func(&self) -> Var {
                 assert!(self.is_float());
                 let node = Node::Func {
-                    ty: self.ty.into(),
+                    ty: type_from_ptr(self.ty),
                     f: stringify!($func),
                     args: smallvec![self.node],
                 };
@@ -526,6 +578,7 @@ macro_rules! impl_func1_f {
                     Var {
                         node: r.add_node(node),
                         ty: self.ty,
+                        phantom: PhantomData {},
                     }
                 })
             }
@@ -534,11 +587,11 @@ macro_rules! impl_func1_f {
 }
 macro_rules! impl_cmp1 {
     ($func:ident, $tok:tt) => {
-        impl Var {
-            pub fn $func(self, rhs: Self) -> Var {
-                assert_eq!(self.ty, rhs.ty);
+        impl<'a> Var<'a> {
+            pub fn $func(self, rhs: Self) -> Var<'a> {
+                // assert_eq!(self.ty, rhs.ty);
                 let node = Node::Binary {
-                    ty: "bool".into(),
+                    ty: type_from_name("bool"),
                     op: stringify!($tok),
                     lhs: self.node,
                     rhs: rhs.node,
@@ -547,7 +600,8 @@ macro_rules! impl_cmp1 {
                     let mut r = r.borrow_mut();
                     Var {
                         node: r.add_node(node),
-                        ty: "bool",
+                        ty: Rc::as_ptr(&type_from_name("bool")),
+                        phantom: PhantomData {},
                     }
                 })
             }
