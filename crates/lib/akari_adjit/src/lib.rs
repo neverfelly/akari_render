@@ -3,9 +3,9 @@ pub mod compile;
 pub use libloading;
 use var::{Var, RECORDER};
 pub mod codegen;
+pub mod cpp_runtime;
 pub mod var;
 pub mod vec;
-
 pub type FuncCFnPtr = unsafe extern "C" fn(*const f32, *mut f32);
 pub type DFuncCFnPtr = unsafe extern "C" fn(*const f32, *const f32, *const usize, *mut f32);
 // pub type D2FuncCFnPtr = unsafe extern "C" fn(*const f32, *const f32, *const usize, *mut f32);
@@ -101,3 +101,29 @@ pub fn grad(f: &Func, vars: &[usize]) -> DFunc {
 //         assert!((out[0] - 16.0).abs() < 1e-4);
 //     }
 // }
+
+pub trait ToJit {
+    type Target: JitStruct;
+    fn offset(field: &str) -> usize;
+    fn size() -> usize;
+    fn align() -> usize;
+}
+
+pub trait JitStruct {
+    fn expand(&self) -> Vec<Var>;
+    fn compact(fields: Vec<Var>) -> Self;
+}
+
+#[macro_export]
+macro_rules! offset_of {
+    ($t:ty, $name:ident) => {
+        unsafe {
+            let s = std::mem::MaybeUninit::uninit();
+            let p = s.as_ptr();
+            let addr = p as usize;
+            let field_addr = std::ptr::addr_of!((&*p).$name) as usize;
+            assert!(field_addr >= addr);
+            field_addr - addr
+        }
+    };
+}

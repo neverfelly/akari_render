@@ -582,7 +582,7 @@ where
             pt.base_mut().pdf_rev = if s > 0 {
                 qs.unwrap().pdf(scene, qs_minus, pt)
             } else {
-                pt.pdf_emission_origin(scene, pt_minus)
+                pt.pdf_direct_origin(scene, pt_minus)
             };
         }
 

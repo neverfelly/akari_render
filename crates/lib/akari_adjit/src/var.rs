@@ -17,8 +17,9 @@ use smallvec::{smallvec, SmallVec};
 
 pub(crate) struct Recorder {
     nodes: Vec<Node>,
-    bbs: Vec<Rc<BasicBlock>>,
+    bbs: Vec<Rc<Function>>,
     types: HashMap<&'static str, Rc<Type>>,
+    functions: HashMap<String, Rc<Function>>,
 }
 impl Recorder {
     fn type_from_name(&mut self, name: &'static str) -> Rc<Type> {
@@ -33,8 +34,9 @@ impl Recorder {
     pub fn new() -> Self {
         Self {
             nodes: vec![],
-            bbs: vec![Rc::new(BasicBlock::new())],
+            bbs: vec![Rc::new(Function::new_bb())],
             types: HashMap::new(),
+            functions: HashMap::new(),
         }
     }
 }
@@ -119,7 +121,7 @@ impl Recorder {
         self.nodes.push(node);
         unsafe {
             let bb = self.bbs.last_mut().unwrap();
-            let bb = &mut *(bb.as_ref() as *const BasicBlock as *mut BasicBlock);
+            let bb = &mut *(bb.as_ref() as *const Function as *mut Function);
             bb.nodes.push(i);
         }
         i
@@ -167,26 +169,30 @@ impl Recorder {
 thread_local! {
     pub(crate) static RECORDER: RefCell<Recorder> = RefCell::new(Recorder::new());
 }
-
-#[derive(Clone)]
-pub(crate) struct BasicBlock {
-    pub(crate) preds: Vec<Rc<BasicBlock>>,
-    pub(crate) succs: Vec<Weak<BasicBlock>>,
-    pub(crate) nodes: Vec<usize>,
-    pub(crate) outputs: Vec<usize>,
-    pub(crate) merge: Option<Weak<BasicBlock>>,
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(crate) enum FunctionKind {
+    Generic,
+    BasicBlock,
+    Loop,
 }
-impl BasicBlock {
-    pub(crate) fn new() -> Self {
+#[derive(Clone)]
+pub(crate) struct Function {
+    pub(crate) nodes: Vec<usize>,
+    pub(crate) args: Vec<Node>,
+    pub(crate) ret: Option<usize>,
+    pub(crate) kind: FunctionKind,
+}
+impl Function {
+    pub(crate) fn new_bb() -> Self {
         Self {
-            preds: vec![],
             nodes: vec![],
-            outputs: vec![],
-            succs: vec![],
-            merge: None,
+            ret: None,
+            args: vec![],
+            kind: FunctionKind::BasicBlock,
         }
     }
 }
+
 #[derive(Clone, PartialEq, Eq)]
 pub enum Type {
     Atom(String),
@@ -214,8 +220,18 @@ impl Type {
         }
     }
 }
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct Pointer {
+    pub base: usize,
+    pub offset: usize,
+}
 #[derive(Clone)]
 pub(crate) enum Node {
+    Load {
+        ty: Rc<Type>,
+        val: Pointer,
+        grad: Option<Pointer>,
+    },
     Tuple {
         ty: Rc<Type>,
         values: Vec<usize>,
@@ -225,7 +241,7 @@ pub(crate) enum Node {
         tuple: usize,
         index: usize,
     },
-    Arg {
+    Param {
         ty: Rc<Type>,
         idx: usize,
     },
@@ -263,8 +279,8 @@ pub(crate) enum Node {
     Cond {
         ty: Rc<Type>,
         cond: usize,
-        x: Weak<BasicBlock>,
-        y: Weak<BasicBlock>,
+        x: Weak<Function>,
+        y: Weak<Function>,
     },
 }
 impl Node {
@@ -276,7 +292,7 @@ impl Node {
                 _ => unreachable!(),
             },
             Node::Cond { ty, .. } => ty,
-            Node::Arg { ty, .. } => ty,
+            Node::Param { ty, .. } => ty,
             Node::Const { ty, .. } => ty,
             Node::Cast { to, .. } => to,
             Node::Binary { ty, .. } => ty,
@@ -329,23 +345,23 @@ pub struct Var<'a> {
     pub(crate) ty: *const Type,
     phantom: PhantomData<&'a Type>,
 }
-impl<'a> Var<'a> {
-    pub fn arg(i: usize, ty: &'static str) -> Self {
-        let ty = type_from_name(ty);
-        let node = Node::Arg {
-            ty: ty.clone(),
-            idx: i,
-        };
-        RECORDER.with(|r| {
-            let mut r = r.borrow_mut();
-            Self {
-                node: r.add_node(node),
-                ty: Rc::as_ptr(&ty),
-                phantom: PhantomData {},
-            }
-        })
-    }
-}
+// impl<'a> Var<'a> {
+//     pub fn arg(i: usize, ty: &'static str) -> Self {
+//         let ty = type_from_name(ty);
+//         let node = Node::Arg {
+//             ty: ty.clone(),
+//             idx: i,
+//         };
+//         RECORDER.with(|r| {
+//             let mut r = r.borrow_mut();
+//             Self {
+//                 node: r.add_node(node),
+//                 ty: Rc::as_ptr(&ty),
+//                 phantom: PhantomData {},
+//             }
+//         })
+//     }
+// }
 
 // pub trait Expand {
 //     fn expand(&self) -> Vec<AnyVar>;
