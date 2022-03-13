@@ -82,6 +82,10 @@ impl AdContext {
             propagator.backward(frame);
         }
     }
+    pub unsafe fn reset(&mut self) {
+        self.list.clear();
+        self.alloc.reset();
+    }
 }
 
 #[derive(Clone, Copy)]
@@ -126,7 +130,7 @@ mod test {
     struct Sqr {}
 
     static SQR: Sqr = Sqr {};
-    fn sqr_ad<'a>(ctx: &'a mut AdContext, input: Dual<f32>) -> Dual<f32> {
+    fn sqr_ad(ctx: &mut AdContext, input: Dual<f32>) -> Dual<f32> {
         ctx.push(&SQR, input)
     }
     impl AdFunction<Dual<f32>, Dual<f32>> for Sqr {
