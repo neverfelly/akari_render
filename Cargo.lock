@@ -46,6 +46,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "akari_ad"
+version = "0.1.0"
+dependencies = [
+ "bumpalo",
+ "proc-macro2",
+ "syn",
+]
+
+[[package]]
 name = "akari_cli"
 version = "0.1.0"
 dependencies = [
@@ -126,14 +135,6 @@ dependencies = [
  "akari_core",
  "akari_utils",
  "serde",
-]
-
-[[package]]
-name = "akari_jit"
-version = "0.1.0"
-dependencies = [
- "libloading",
- "smallvec",
 ]
 
 [[package]]

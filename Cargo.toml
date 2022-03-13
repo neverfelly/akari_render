@@ -5,7 +5,7 @@ members = [
   "crates/lib/akari_utils",
   "crates/lib/akari_const",
   "crates/lib/akari_integrators",
-  "crates/lib/akari_adjit",
+  "crates/lib/akari_ad",
   "crates/lib/akari",
   "crates/lib/akari_gpu",
   "crates/bin/akari_cli",
