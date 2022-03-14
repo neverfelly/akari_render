@@ -80,34 +80,35 @@ impl AdCodeGen {
                     .iter()
                     .map(|a| format!("*{}.get()", self.gen_var(a)))
                     .collect();
-                match f {
-                    ir::Func::PrimFunc(f) => match f {
-                        ir::PrimFunc::Neg => format!("-{}", args[0]),
-                        ir::PrimFunc::Not => format!("!{}", args[0]),
-                        ir::PrimFunc::Add => format!("{} + {}", args[0], args[1]),
-                        ir::PrimFunc::Sub => format!("{} - {}", args[0], args[1]),
-                        ir::PrimFunc::Mul => format!("{} * {}", args[0], args[1]),
-                        ir::PrimFunc::Div => format!("{} / {}", args[0], args[1]),
-                        ir::PrimFunc::Rem => format!("{} % {}", args[0], args[1]),
-                        ir::PrimFunc::And => format!("{} && {}", args[0], args[1]),
-                        ir::PrimFunc::Or => format!("{} || {}", args[0], args[1]),
-                        ir::PrimFunc::BitAnd => format!("{} & {}", args[0], args[1]),
-                        ir::PrimFunc::BitOr => format!("{} | {}", args[0], args[1]),
-                        ir::PrimFunc::Shl => format!("{} << {}", args[0], args[1]),
-                        ir::PrimFunc::Shr => format!("{} >> {}", args[0], args[1]),
-                        ir::PrimFunc::Eq => format!("{} == {}", args[0], args[1]),
-                        ir::PrimFunc::Ne => format!("{} != {}", args[0], args[1]),
-                        ir::PrimFunc::Lt => format!("{} <  {}", args[0], args[1]),
-                        ir::PrimFunc::Gt => format!("{} >  {}", args[0], args[1]),
-                        ir::PrimFunc::Le => format!("{} <= {}", args[0], args[1]),
-                        ir::PrimFunc::Ge => format!("{} >= {}", args[0], args[1]),
-                        ir::PrimFunc::Load => todo!(),
-                        ir::PrimFunc::Tuple => todo!(),
-                    },
-                    ir::Func::Named { path, is_method } => {
-                        format!("{}({})", path.0.join("::"), args.join(","))
-                    }
-                }
+                // match f {
+                //     ir::Func::PrimFunc(f) => match f {
+                //         ir::PrimFunc::Neg => format!("-{}", args[0]),
+                //         ir::PrimFunc::Not => format!("!{}", args[0]),
+                //         ir::PrimFunc::Add => format!("{} + {}", args[0], args[1]),
+                //         ir::PrimFunc::Sub => format!("{} - {}", args[0], args[1]),
+                //         ir::PrimFunc::Mul => format!("{} * {}",o args[0], args[1]),
+                //         ir::PrimFunc::Div => format!("{} / {}", args[0], args[1]),
+                //         ir::PrimFunc::Rem => format!("{} % {}", args[0], args[1]),
+                //         ir::PrimFunc::And => format!("{} && {}", args[0], args[1]),
+                //         ir::PrimFunc::Or => format!("{} || {}", args[0], args[1]),
+                //         ir::PrimFunc::BitAnd => format!("{} & {}", args[0], args[1]),
+                //         ir::PrimFunc::BitOr => format!("{} | {}", args[0], args[1]),
+                //         ir::PrimFunc::Shl => format!("{} << {}", args[0], args[1]),
+                //         ir::PrimFunc::Shr => format!("{} >> {}", args[0], args[1]),
+                //         ir::PrimFunc::Eq => format!("{} == {}", args[0], args[1]),
+                //         ir::PrimFunc::Ne => format!("{} != {}", args[0], args[1]),
+                //         ir::PrimFunc::Lt => format!("{} <  {}", args[0], args[1]),
+                //         ir::PrimFunc::Gt => format!("{} >  {}", args[0], args[1]),
+                //         ir::PrimFunc::Le => format!("{} <= {}", args[0], args[1]),
+                //         ir::PrimFunc::Ge => format!("{} >= {}", args[0], args[1]),
+                //         ir::PrimFunc::Load => todo!(),
+                //         ir::PrimFunc::Tuple => todo!(),
+                //     },
+                //     ir::Func::Named { path, is_method } => {
+                //         format!("{}({})", path.0.join("::"), args.join(","))
+                //     }
+                // }
+                todo!()
             }
             Expr::Extract(_, _) => todo!(),
             Expr::Insert(_, _, _) => todo!(),

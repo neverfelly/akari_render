@@ -1,34 +1,19 @@
-use std::marker::PhantomData;
+use std::{
+    marker::PhantomData,
+    ops::{Add, AddAssign},
+};
 
 pub struct AdContext {
-    list: Vec<AdFrame>,
     alloc: bumpalo::Bump,
-    reset_grad: Vec<&'static dyn Fn()>,
+    reset_grads: Vec<&'static dyn Fn()>,
+    back_propagators: Vec<&'static dyn Fn()>,
 }
 
-pub struct AdFrame {
-    pub buffer: *mut u8,
-    pub inputs: &'static [*mut f32],
-    pub outputs: &'static [*mut f32],
-    pub d_inputs: &'static [*mut f32],
-    pub d_outputs: &'static [*mut f32],
-    pub propagator: &'static dyn BackPropagator,
-}
-impl AdFrame {
-    pub unsafe fn zero_grad(&mut self) {
-        self.d_inputs.iter().for_each(|x| std::ptr::write(*x, 0.0));
-        self.d_outputs.iter().for_each(|x| std::ptr::write(*x, 0.0));
-    }
-}
+// pub trait AdFunction<I, O> {
+//     fn forward(&'static self, ctx: &mut AdContext, input: I) -> (O, AdFrame);
+// }
 
-pub unsafe trait BackPropagator {
-    fn backward(&self, ctx: &mut AdFrame);
-}
-pub trait AdFunction<I, O> {
-    fn forward(&'static self, ctx: &mut AdContext, input: I) -> (O, AdFrame);
-}
-
-pub trait Differentiable: Copy {
+pub trait Differentiable: Copy + AddAssign {
     fn zero() -> Self;
 }
 pub trait ToAdjoint {
@@ -38,9 +23,9 @@ pub trait ToAdjoint {
 impl AdContext {
     pub fn new() -> Self {
         Self {
-            list: vec![],
+            back_propagators: vec![],
             alloc: bumpalo::Bump::new(),
-            reset_grad: vec![],
+            reset_grads: vec![],
         }
     }
     pub unsafe fn alloc<T>(&mut self, val: T) -> *mut T {
@@ -56,25 +41,27 @@ impl AdContext {
         let s = self.alloc.alloc_slice_copy(data);
         std::mem::transmute(s)
     }
-    pub fn push<I, O, F: AdFunction<I, O>>(&mut self, f: &'static F, input: I) -> O {
-        let (output, frame) = f.forward(self, input);
-        self.list.push(frame);
-        output
-    }
+    // pub fn push<I, O, F: AdFunction<I, O>>(&mut self, f: &'static F, input: I) -> O {
+    //     let (output, frame) = f.forward(self, input);
+    //     self.list.push(frame);
+    //     output
+    // }
     pub fn push_reset_grad_func<F: Fn()>(&mut self, f: F) {
         let f = self.alloc.alloc(f) as &F as &dyn Fn();
         unsafe {
             let f: &'static dyn Fn() = std::mem::transmute(f);
-            self.reset_grad.push(f);
+            self.reset_grads.push(f);
+        }
+    }
+    pub fn push_back_propagator<F: Fn()>(&mut self, f: F) {
+        let f = self.alloc.alloc(f) as &F as &dyn Fn();
+        unsafe {
+            let f: &'static dyn Fn() = std::mem::transmute(f);
+            self.back_propagators.push(f);
         }
     }
     pub fn zero_grad(&mut self) {
-        for frame in &mut self.list {
-            unsafe {
-                frame.zero_grad();
-            }
-        }
-        for x in &self.reset_grad {
+        for x in &self.reset_grads {
             (x)();
         }
     }
@@ -86,14 +73,13 @@ impl AdContext {
         //         .zip(gradients.iter())
         //         .for_each(|(x, y)| std::ptr::write(*x, *y));
         // }
-        for i in (0..self.list.len()).rev() {
-            let frame = &mut self.list[i];
-            let propagator = frame.propagator;
-            propagator.backward(frame);
+        for bp in self.back_propagators.iter().rev() {
+            (bp)();
         }
     }
     pub unsafe fn reset(&mut self) {
-        self.list.clear();
+        self.reset_grads.clear();
+        self.back_propagators.clear();
         self.alloc.reset();
     }
 }
@@ -116,6 +102,9 @@ impl<T: Differentiable> Dual<T> {
     pub unsafe fn adjoint_mut(&self) -> &mut T {
         &mut *self.adjoint
     }
+    pub unsafe fn add_gradient(&self, gradient: T) {
+        *self.adjoint_mut() += gradient;
+    }
     pub unsafe fn new(ctx: &mut AdContext, primal: T) -> Self {
         let v = &mut *ctx.alloc((primal, T::zero()));
         Self {
@@ -129,9 +118,12 @@ impl<T: Differentiable> Dual<T> {
     pub unsafe fn zero(ctx: &mut AdContext) -> Self {
         Self::new(ctx, T::zero())
     }
-    pub unsafe fn assign(&self, rhs: Dual<T>) {
-        std::ptr::copy(rhs.primal, self.primal, 1);
-        std::ptr::copy(rhs.adjoint, self.adjoint, 1);
+    // pub unsafe fn assign(&self, rhs: Dual<T>) {
+    //     std::ptr::copy(rhs.primal, self.primal, 1);
+    //     std::ptr::copy(rhs.adjoint, self.adjoint, 1);
+    // }
+    pub unsafe fn set_primal(&self, rhs: T) {
+        std::ptr::write(self.primal, rhs);
     }
 }
 impl Differentiable for f32 {
@@ -139,48 +131,138 @@ impl Differentiable for f32 {
         0.0
     }
 }
+
+pub enum Two<A, B> {
+    A(A),
+    B(B),
+}
+pub unsafe fn lift_lifetime<'a, T>(x: &'a T) -> &'static T {
+    std::mem::transmute(x)
+}
+
+#[cfg(test)]
 mod test {
     use super::*;
     fn sqr(x: f32) -> f32 {
         x * x
     }
-    fn sin(x: f32) -> f32 {
-        x.sin()
-    }
-    struct Sqr {}
-
-    static SQR: Sqr = Sqr {};
-    fn sqr_ad(ctx: &mut AdContext, input: Dual<f32>) -> Dual<f32> {
-        ctx.push(&SQR, input)
-    }
-    impl AdFunction<Dual<f32>, Dual<f32>> for Sqr {
-        fn forward(&'static self, ctx: &mut AdContext, input: Dual<f32>) -> (Dual<f32>, AdFrame) {
-            unsafe {
-                let output = Dual::<f32>::new(ctx, sqr(*input.primal));
-                let frame = AdFrame {
-                    buffer: std::ptr::null_mut(),
-                    inputs: ctx.alloc_slice_copy(&[input.primal]),
-                    outputs: ctx.alloc_slice_copy(&[output.primal]),
-                    d_inputs: ctx.alloc_slice_copy(&[input.adjoint]),
-                    d_outputs: ctx.alloc_slice_copy(&[output.adjoint]),
-                    propagator: &SQR,
-                };
-                (output, frame)
-            }
+    fn _sqr_ad(ctx: &mut AdContext, x: Dual<f32>) -> (Dual<f32>, impl Fn(), impl Fn()) {
+        unsafe {
+            let y = Dual::new(ctx, *x.primal() * *x.primal());
+            let reset_grad = move || {
+                y.reset_grad();
+            };
+            let back_propagator = move || x.add_gradient(2.0 * *x.primal() * *y.adjoint());
+            (y, reset_grad, back_propagator)
         }
     }
-    unsafe impl BackPropagator for Sqr {
-        // fn zero_grad(&self, _ctx: &mut AdFrame) {}
-
-        fn backward(&self, ctx: &mut AdFrame) {
-            unsafe {
-                let dy = &*ctx.d_outputs[0];
-                let dx = &mut *ctx.d_inputs[0];
-                let x = *&mut *ctx.inputs[0];
-                *dx = dy * 2.0 * x;
-            }
+    fn sqr_ad(ctx: &mut AdContext, x: Dual<f32>) -> Dual<f32> {
+        let (ret, reset_grad, back_propagator) = _sqr_ad(ctx, x);
+        ctx.push_reset_grad_func(reset_grad);
+        ctx.push_back_propagator(back_propagator);
+        ret
+    }
+    fn pow4(x: f32) -> f32 {
+        sqr(sqr(x))
+    }
+    fn _pow4_ad(ctx: &mut AdContext, x: Dual<f32>) -> (Dual<f32>, impl Fn(), impl Fn()) {
+        unsafe {
+            // let mut x2: Dual<_> = Dual::zero(ctx);
+            // let mut x4: Dual<_> = Dual::zero(ctx);
+            let (x2, reset_grad0, back_propagator0) = _sqr_ad(ctx, x);
+            // x2 = ret;
+            let (x4, reset_grad1, back_propagator1) = _sqr_ad(ctx, x2);
+            // x4 = ret;
+            let reset_grad = move || {
+                x2.reset_grad();
+                x4.reset_grad();
+                reset_grad0();
+                reset_grad1();
+            };
+            let back_propagator = move || {
+                back_propagator1();
+                back_propagator0();
+            };
+            (x4, reset_grad, back_propagator)
         }
     }
+    fn pow4_ad(ctx: &mut AdContext, x: Dual<f32>) -> Dual<f32> {
+        let (ret, reset_grad, back_propagator) = _pow4_ad(ctx, x);
+        ctx.push_reset_grad_func(reset_grad);
+        ctx.push_back_propagator(back_propagator);
+        ret
+    }
+    fn g(x: f32) -> f32 {
+        if x > 1.0 {
+            pow4(x)
+        } else {
+            sqr(x)
+        }
+    }
+    fn _g_ad(ctx: &mut AdContext, x: Dual<f32>) -> (Dual<f32>, impl Fn(), impl Fn()) {
+        unsafe {
+            let tmp = if *x.primal() > 1.0 {
+                Two::A(_pow4_ad(ctx, x))
+            } else {
+                Two::B(_sqr_ad(ctx, x))
+            };
+            let ret = match tmp {
+                Two::A((ret, ..)) => ret,
+                Two::B((ret, ..)) => ret,
+            };
+            let tmp = lift_lifetime(&*ctx.alloc(tmp));
+
+            let reset_grad = move || match &tmp {
+                Two::A((_, reset_grad, ..)) => (reset_grad)(),
+                Two::B((_, reset_grad, ..)) => (reset_grad)(),
+            };
+            let back_propagator = move || match &tmp {
+                Two::A((_, _, back_propagator)) => (back_propagator)(),
+                Two::B((_, _, back_propagator)) => (back_propagator)(),
+            };
+            (ret, reset_grad, back_propagator)
+        }
+    }
+    fn g_ad(ctx: &mut AdContext, x: Dual<f32>) -> Dual<f32> {
+        let (ret, reset_grad, back_propagator) = _g_ad(ctx, x);
+        ctx.push_reset_grad_func(reset_grad);
+        ctx.push_back_propagator(back_propagator);
+        ret
+    }
+    // struct Sqr {}
+
+    // static SQR: Sqr = Sqr {};
+    // fn sqr_ad(ctx: &mut AdContext, input: Dual<f32>) -> Dual<f32> {
+    //     ctx.push(&SQR, input)
+    // }
+    // impl AdFunction<Dual<f32>, Dual<f32>> for Sqr {
+    //     fn forward(&'static self, ctx: &mut AdContext, input: Dual<f32>) -> (Dual<f32>, AdFrame) {
+    //         unsafe {
+    //             let output = Dual::<f32>::new(ctx, sqr(*input.primal));
+    //             let frame = AdFrame {
+    //                 buffer: std::ptr::null_mut(),
+    //                 inputs: ctx.alloc_slice_copy(&[input.primal]),
+    //                 outputs: ctx.alloc_slice_copy(&[output.primal]),
+    //                 d_inputs: ctx.alloc_slice_copy(&[input.adjoint]),
+    //                 d_outputs: ctx.alloc_slice_copy(&[output.adjoint]),
+    //                 propagator: &SQR,
+    //             };
+    //             (output, frame)
+    //         }
+    //     }
+    // }
+    // unsafe impl BackPropagator for Sqr {
+    //     // fn zero_grad(&self, _ctx: &mut AdFrame) {}
+
+    //     fn backward(&self, ctx: &mut AdFrame) {
+    //         unsafe {
+    //             let dy = &*ctx.d_outputs[0];
+    //             let dx = &mut *ctx.d_inputs[0];
+    //             let x = *&mut *ctx.inputs[0];
+    //             *dx = dy * 2.0 * x;
+    //         }
+    //     }
+    // }
     #[test]
     fn test_sqr() {
         let x = 2.0;
@@ -212,7 +294,75 @@ mod test {
 
             ctx.backward();
             assert!((y - 16.0).abs() < 1e-4);
-            assert!((std::ptr::read(dualx.adjoint) - 4.0 * x.powi(3)).abs() < 1e-4);
+            assert!(
+                (std::ptr::read(dualx.adjoint) - 4.0 * x.powi(3)).abs() < 1e-4,
+                "{} != {}",
+                std::ptr::read(dualx.adjoint),
+                4.0 * x.powi(3)
+            );
+        }
+    }
+    #[test]
+    fn test_pow4() {
+        let x = 2.0;
+        let y = sqr(sqr(x));
+        let mut ctx = AdContext::new();
+        unsafe {
+            let dualx = Dual::<f32>::new(&mut ctx, x);
+            let dualy = pow4_ad(&mut ctx, dualx);
+
+            std::ptr::write(dualy.adjoint, 1.0);
+
+            ctx.backward();
+            assert!((y - 16.0).abs() < 1e-4);
+            assert!(
+                (std::ptr::read(dualx.adjoint) - 4.0 * x.powi(3)).abs() < 1e-4,
+                "{} != {}",
+                std::ptr::read(dualx.adjoint),
+                4.0 * x.powi(3)
+            );
+        }
+    }
+    #[test]
+    fn test_cond1() {
+        let x = 2.0;
+        let y = g(x);
+        let mut ctx = AdContext::new();
+        unsafe {
+            let dualx = Dual::<f32>::new(&mut ctx, x);
+            let dualy = g_ad(&mut ctx, dualx);
+
+            std::ptr::write(dualy.adjoint, 1.0);
+
+            ctx.backward();
+            assert!((y - 16.0).abs() < 1e-4);
+            assert!(
+                (std::ptr::read(dualx.adjoint) - 4.0 * x.powi(3)).abs() < 1e-4,
+                "{} != {}",
+                std::ptr::read(dualx.adjoint),
+                4.0 * x.powi(3)
+            );
+        }
+    }
+    #[test]
+    fn test_cond2() {
+        let x = 0.5;
+        let y = g(x);
+        let mut ctx = AdContext::new();
+        unsafe {
+            let dualx = Dual::<f32>::new(&mut ctx, x);
+            let dualy = g_ad(&mut ctx, dualx);
+
+            std::ptr::write(dualy.adjoint, 1.0);
+
+            ctx.backward();
+            assert!((y - 0.25).abs() < 1e-4);
+            assert!(
+                (std::ptr::read(dualx.adjoint) - 2.0 * x).abs() < 1e-4,
+                "{} != {}",
+                std::ptr::read(dualx.adjoint),
+                2.0 * x
+            );
         }
     }
 }
