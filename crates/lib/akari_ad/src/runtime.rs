@@ -3,6 +3,7 @@ use std::marker::PhantomData;
 pub struct AdContext {
     list: Vec<AdFrame>,
     alloc: bumpalo::Bump,
+    reset_grad: Vec<&'static dyn Fn()>,
 }
 
 pub struct AdFrame {
@@ -17,23 +18,21 @@ impl AdFrame {
     pub unsafe fn zero_grad(&mut self) {
         self.d_inputs.iter().for_each(|x| std::ptr::write(*x, 0.0));
         self.d_outputs.iter().for_each(|x| std::ptr::write(*x, 0.0));
-        self.propagator.zero_grad(self);
     }
 }
 
 pub unsafe trait BackPropagator {
-    fn zero_grad(&self, ctx: &mut AdFrame);
     fn backward(&self, ctx: &mut AdFrame);
 }
 pub trait AdFunction<I, O> {
     fn forward(&'static self, ctx: &mut AdContext, input: I) -> (O, AdFrame);
 }
 
-pub trait Adjoint: Copy {
+pub trait Differentiable: Copy {
     fn zero() -> Self;
 }
 pub trait ToAdjoint {
-    type Output: Adjoint;
+    type Output: Differentiable;
     fn to_adjoint(&self, ctx: &mut AdContext) -> Self::Output;
 }
 impl AdContext {
@@ -41,6 +40,7 @@ impl AdContext {
         Self {
             list: vec![],
             alloc: bumpalo::Bump::new(),
+            reset_grad: vec![],
         }
     }
     pub unsafe fn alloc<T>(&mut self, val: T) -> *mut T {
@@ -61,11 +61,21 @@ impl AdContext {
         self.list.push(frame);
         output
     }
+    pub fn push_reset_grad_func<F: Fn()>(&mut self, f: F) {
+        let f = self.alloc.alloc(f) as &F as &dyn Fn();
+        unsafe {
+            let f: &'static dyn Fn() = std::mem::transmute(f);
+            self.reset_grad.push(f);
+        }
+    }
     pub fn zero_grad(&mut self) {
         for frame in &mut self.list {
             unsafe {
                 frame.zero_grad();
             }
+        }
+        for x in &self.reset_grad {
+            (x)();
         }
     }
     pub fn backward(&mut self) {
@@ -89,11 +99,11 @@ impl AdContext {
 }
 
 #[derive(Clone, Copy)]
-pub struct Dual<T: Adjoint> {
+pub struct Dual<T: Differentiable> {
     pub primal: *mut T,
     pub adjoint: *mut T,
 }
-impl<T: Adjoint> Dual<T> {
+impl<T: Differentiable> Dual<T> {
     pub unsafe fn primal(&self) -> &T {
         &*self.primal
     }
@@ -113,8 +123,18 @@ impl<T: Adjoint> Dual<T> {
             adjoint: &mut v.1 as *mut T,
         }
     }
+    pub unsafe fn reset_grad(&self) {
+        std::ptr::write(self.adjoint, T::zero());
+    }
+    pub unsafe fn zero(ctx: &mut AdContext) -> Self {
+        Self::new(ctx, T::zero())
+    }
+    pub unsafe fn assign(&self, rhs: Dual<T>) {
+        std::ptr::copy(rhs.primal, self.primal, 1);
+        std::ptr::copy(rhs.adjoint, self.adjoint, 1);
+    }
 }
-impl Adjoint for f32 {
+impl Differentiable for f32 {
     fn zero() -> Self {
         0.0
     }
@@ -150,7 +170,7 @@ mod test {
         }
     }
     unsafe impl BackPropagator for Sqr {
-        fn zero_grad(&self, _ctx: &mut AdFrame) {}
+        // fn zero_grad(&self, _ctx: &mut AdFrame) {}
 
         fn backward(&self, ctx: &mut AdFrame) {
             unsafe {

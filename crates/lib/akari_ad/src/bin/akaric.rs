@@ -7,6 +7,6 @@ fn main() {
     //
     let f = akari_ad::parse::parse_str(&s);
     println!("{:#?}", f);
-    let mut cg = AdCodeGen {};
+    let mut cg = AdCodeGen::new();
     println!("{}", cg.gen_forward(&f));
 }
