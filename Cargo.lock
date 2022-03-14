@@ -55,6 +55,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "akari_ad_derive"
+version = "0.1.0"
+dependencies = [
+ "akari_ad",
+ "proc-macro2",
+ "syn",
+]
+
+[[package]]
 name = "akari_cli"
 version = "0.1.0"
 dependencies = [

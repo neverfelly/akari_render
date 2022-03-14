@@ -217,7 +217,7 @@ mod test {
                 Two::B((_, reset_grad, ..)) => (reset_grad)(),
             };
             let back_propagator = move || match &tmp {
-                Two::A((_, _, back_propagator)) => (back_propagator)(),
+                Two::A((_, _, back_propagator)) => (back_propagator)(), 
                 Two::B((_, _, back_propagator)) => (back_propagator)(),
             };
             (ret, reset_grad, back_propagator)
@@ -229,40 +229,6 @@ mod test {
         ctx.push_back_propagator(back_propagator);
         ret
     }
-    // struct Sqr {}
-
-    // static SQR: Sqr = Sqr {};
-    // fn sqr_ad(ctx: &mut AdContext, input: Dual<f32>) -> Dual<f32> {
-    //     ctx.push(&SQR, input)
-    // }
-    // impl AdFunction<Dual<f32>, Dual<f32>> for Sqr {
-    //     fn forward(&'static self, ctx: &mut AdContext, input: Dual<f32>) -> (Dual<f32>, AdFrame) {
-    //         unsafe {
-    //             let output = Dual::<f32>::new(ctx, sqr(*input.primal));
-    //             let frame = AdFrame {
-    //                 buffer: std::ptr::null_mut(),
-    //                 inputs: ctx.alloc_slice_copy(&[input.primal]),
-    //                 outputs: ctx.alloc_slice_copy(&[output.primal]),
-    //                 d_inputs: ctx.alloc_slice_copy(&[input.adjoint]),
-    //                 d_outputs: ctx.alloc_slice_copy(&[output.adjoint]),
-    //                 propagator: &SQR,
-    //             };
-    //             (output, frame)
-    //         }
-    //     }
-    // }
-    // unsafe impl BackPropagator for Sqr {
-    //     // fn zero_grad(&self, _ctx: &mut AdFrame) {}
-
-    //     fn backward(&self, ctx: &mut AdFrame) {
-    //         unsafe {
-    //             let dy = &*ctx.d_outputs[0];
-    //             let dx = &mut *ctx.d_inputs[0];
-    //             let x = *&mut *ctx.inputs[0];
-    //             *dx = dy * 2.0 * x;
-    //         }
-    //     }
-    // }
     #[test]
     fn test_sqr() {
         let x = 2.0;
