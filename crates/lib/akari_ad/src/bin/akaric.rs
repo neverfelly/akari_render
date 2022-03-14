@@ -1,3 +1,5 @@
+use akari_ad::codegen::AdCodeGen;
+
 extern crate syn;
 fn main() {
     let s = std::fs::read_to_string("example/simple.rs").unwrap();
@@ -5,4 +7,6 @@ fn main() {
     //
     let f = akari_ad::parse::parse_str(&s);
     println!("{:#?}", f);
+    let mut cg = AdCodeGen {};
+    println!("{}", cg.gen_forward(&f));
 }

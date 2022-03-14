@@ -1,0 +1,110 @@
+use std::fmt::Write;
+
+use crate::{
+    ir::{self, Expr, Func, Let, Path, Var},
+    parse::{Function, Token},
+};
+pub struct AdCodeGen {}
+impl AdCodeGen {
+    pub fn gen_var(&self, var: &Var) -> String {
+        match var {
+            Var::Id(i) => {
+                format!("t{}", i)
+            }
+            Var::Named(p) => {
+                // p.0.join("::")
+                if p.0.len() > 1 {
+                    p.0.join("::")
+                } else {
+                    format!("_{}", p.0[0])
+                }
+            }
+        }
+    }
+    pub fn gen_expr(&self, e: &Expr) -> String {
+        match e {
+            Expr::Atom(a) => match a {
+                ir::Atom::Literal(s, _) => s.clone(),
+                ir::Atom::String(s) => s.escape_default().collect(),
+                ir::Atom::Identifier { path, constant } => path.0.join("::"),
+            },
+            Expr::Var(v) => self.gen_var(v),
+            Expr::Call(f, args) => {
+                let args: Vec<_> = args.iter().map(|a| self.gen_var(a)).collect();
+                match f {
+                    ir::Func::PrimFunc(f) => match f {
+                        ir::PrimFunc::Neg => format!("-{}", args[0]),
+                        ir::PrimFunc::Not => format!("!{}", args[0]),
+                        ir::PrimFunc::Add => format!("{} + {}", args[0], args[1]),
+                        ir::PrimFunc::Sub => format!("{} - {}", args[0], args[1]),
+                        ir::PrimFunc::Mul => format!("{} * {}", args[0], args[1]),
+                        ir::PrimFunc::Div => format!("{} / {}", args[0], args[1]),
+                        ir::PrimFunc::Rem => format!("{} % {}", args[0], args[1]),
+                        ir::PrimFunc::And => format!("{} && {}", args[0], args[1]),
+                        ir::PrimFunc::Or => format!("{} || {}", args[0], args[1]),
+                        ir::PrimFunc::BitAnd => format!("{} & {}", args[0], args[1]),
+                        ir::PrimFunc::BitOr => format!("{} | {}", args[0], args[1]),
+                        ir::PrimFunc::Shl => format!("{} << {}", args[0], args[1]),
+                        ir::PrimFunc::Shr => format!("{} >> {}", args[0], args[1]),
+                        ir::PrimFunc::Eq => format!("{} == {}", args[0], args[1]),
+                        ir::PrimFunc::Ne => format!("{} != {}", args[0], args[1]),
+                        ir::PrimFunc::Lt => format!("{} <  {}", args[0], args[1]),
+                        ir::PrimFunc::Gt => format!("{} >  {}", args[0], args[1]),
+                        ir::PrimFunc::Le => format!("{} <= {}", args[0], args[1]),
+                        ir::PrimFunc::Ge => format!("{} >= {}", args[0], args[1]),
+                        ir::PrimFunc::Load => todo!(),
+                        ir::PrimFunc::Tuple => todo!(),
+                    },
+                    ir::Func::Named { path, is_method } => {
+                        format!("{}({})", path.0.join("::"), args.join(","))
+                    }
+                }
+            }
+            Expr::Extract(_, _) => todo!(),
+            Expr::Insert(_, _, _) => todo!(),
+            Expr::IfThenElse { cond, then, else_ } => todo!(),
+        }
+    }
+    fn gen_block_forward(&mut self, block: &ir::Block, out: &mut String) {
+        out.push_str("{\n");
+        for binding in &block.bindings {
+            let Let { val, var } = binding;
+            let val = self.gen_expr(val);
+            let var = self.gen_var(var);
+            writeln!(out, "let {} = {};", var, val).unwrap();
+        }
+        writeln!(out, "{}\n}}", self.gen_var(block.ret.as_ref().unwrap())).unwrap();
+    }
+    fn lift_type(&self, ty: &ir::Type) -> String {
+        match ty {
+            ir::Type::Path(p) => format!("akari_ad::runtime::Dual<{}>", p.0.join("::")),
+            ir::Type::Tuple(_) => todo!(),
+            ir::Type::Slice(_) => todo!(),
+            ir::Type::Inferred => todo!(),
+        }
+    }
+    fn lift_func_name(&self, p: &Token) -> String {
+        // let mut s =  p.0.join("::");
+        // s.push_str("_ad");
+        // s
+        format!("{}_ad", p.as_identifier().unwrap())
+    }
+    pub fn gen_forward(&mut self, f: &Function) -> String {
+        let mut out = String::new();
+        let params: Vec<_> = f
+            .parameters
+            .iter()
+            .map(|p| format!("{}: {}", self.gen_var(&p.name), self.lift_type(&p.ty)))
+            .collect();
+        write!(
+            out,
+            "pub fn {}({}) -> {}",
+            self.lift_func_name(&f.name),
+            params.join(","),
+            self.lift_type(&f.ret)
+        )
+        .unwrap();
+        self.gen_block_forward(&f.body, &mut out);
+        out
+    }
+}

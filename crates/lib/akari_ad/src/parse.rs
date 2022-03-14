@@ -1,6 +1,6 @@
 use std::{collections::HashMap, rc::Rc};
 
-use crate::ir::{self, Atom, Let, Path, Type, Var};
+use crate::ir::{self, Atom, Let, Path, PrimFunc, Type, Var};
 
 #[derive(Clone, Debug)]
 pub struct SourceLocation {
@@ -124,6 +124,7 @@ pub struct Function {
     pub name: Token,
     pub parameters: Vec<Parameter>,
     pub body: ir::Block,
+    pub ret: ir::Type,
 }
 impl Token {
     pub fn from_ident(ident: &syn::Ident) -> Self {
@@ -144,6 +145,7 @@ fn syn_ty_to_ir_ty(ty: &syn::Type) -> ir::Type {
 }
 struct SymbolTable {
     scopes: Vec<HashMap<Path, Var>>,
+    ver: HashMap<Path, usize>,
 }
 impl SymbolTable {
     fn push_scope(&mut self) {
@@ -155,9 +157,11 @@ impl SymbolTable {
     fn new() -> Self {
         Self {
             scopes: vec![HashMap::new()],
+            ver: HashMap::new(),
         }
     }
     fn add(&mut self, path: Path, v: Var) {
+        assert!(path.0.len() == 1);
         self.scopes.last_mut().unwrap().insert(path, v);
     }
     fn get(&self, path: &Path) -> Option<Var> {
@@ -202,11 +206,12 @@ impl ParseContext {
     }
     fn add_named_var(&mut self, mut path: Path) -> Var {
         let o = path.clone();
-        let depth = self.sym.scopes.len();
+        let ver = self.sym.ver.get(&o).map_or(0, |x| *x);
         {
             let last = path.0.last_mut().unwrap();
-            last.push_str(&depth.to_string());
+            last.push_str(&ver.to_string());
         }
+        self.sym.ver.insert(o.clone(), ver + 1);
         let var = Var::Named(path);
         self.sym.add(o, var.clone());
         var
@@ -300,18 +305,68 @@ impl ParseContext {
                 block.bindings.push(binding);
                 var
             }
+            syn::Expr::Field(syn::ExprField { base, member, .. }) => {
+                let member: ir::Member = member.into();
+                let base = self.parse_expr(base, block);
+                let var = self.gen_var();
+                let binding = ir::Let {
+                    var: var.clone(),
+                    val: ir::Expr::Extract(base, member),
+                };
+                block.bindings.push(binding);
+                var
+            }
             syn::Expr::Call(syn::ExprCall { func, args, .. }) => {
                 let args: Vec<Var> = args.iter().map(|e| self.parse_expr(e, block)).collect();
                 let func = self.get_ident(func);
                 let var = self.gen_var();
                 let binding = ir::Let {
                     var: var.clone(),
-                    val: ir::Expr::Call(ir::Func::Named(func), args),
+                    val: ir::Expr::Call(
+                        ir::Func::Named {
+                            path: func,
+                            is_method: false,
+                        },
+                        args,
+                    ),
                 };
                 block.bindings.push(binding);
                 var
             }
-            syn::Expr::MethodCall(_) => todo!(),
+            syn::Expr::MethodCall(syn::ExprMethodCall {
+                args,
+                method,
+                receiver,
+                ..
+            }) => {
+                let mut args: Vec<Var> = args.iter().map(|e| self.parse_expr(e, block)).collect();
+                let r = self.parse_expr(&*receiver, block);
+                args.insert(0, r);
+                let func = Path(vec![method.to_string()]);
+                let var = self.gen_var();
+                let binding = ir::Let {
+                    var: var.clone(),
+                    val: ir::Expr::Call(
+                        ir::Func::Named {
+                            path: func,
+                            is_method: true,
+                        },
+                        args,
+                    ),
+                };
+                block.bindings.push(binding);
+                var
+            }
+            syn::Expr::Tuple(syn::ExprTuple { elems, .. }) => {
+                let elems: Vec<Var> = elems.iter().map(|e| self.parse_expr(e, block)).collect();
+                let var = self.gen_var();
+                let binding = ir::Let {
+                    var: var.clone(),
+                    val: ir::Expr::Call(ir::Func::PrimFunc(PrimFunc::Tuple), elems),
+                };
+                block.bindings.push(binding);
+                var
+            }
             syn::Expr::Macro(_) => todo!(),
             syn::Expr::If(syn::ExprIf {
                 cond,
@@ -326,7 +381,10 @@ impl ParseContext {
                 let mut then = ir::Block::new();
                 let mut else_ = ir::Block::new();
                 self.parse_block(then_branch, &mut then);
-                self.parse_expr(&else_branch.as_ref().unwrap().1, &mut else_);
+                {
+                    let r = self.parse_expr(&else_branch.as_ref().unwrap().1, &mut else_);
+                    else_.ret = Some(r);
+                }
                 let var = self.gen_var();
                 let binding = ir::Let {
                     var: var.clone(),
@@ -363,10 +421,11 @@ impl ParseContext {
                         if ident.mutability.is_some() {
                             panic!("arg must not be mut");
                         }
-                        let var = Path(vec![ident.ident.to_string()]);
-                        let var = self.add_named_var(var);
+
                         let init = &init.as_ref().unwrap().1;
                         let init = self.parse_expr(&**init, ir_block);
+                        let var = Path(vec![ident.ident.to_string()]);
+                        let var = self.add_named_var(var);
                         ir_block.bindings.push(ir::Let {
                             var,
                             val: ir::Expr::Var(init),
@@ -380,10 +439,11 @@ impl ParseContext {
                             if ident.mutability.is_some() {
                                 panic!("arg must not be mut");
                             }
-                            let var = Path(vec![ident.ident.to_string()]);
-                            let var = self.add_named_var(var);
+
                             let init = &init.as_ref().unwrap().1;
                             let init = self.parse_expr(&**init, ir_block);
+                            let var = Path(vec![ident.ident.to_string()]);
+                            let var = self.add_named_var(var);
                             ir_block.bindings.push(ir::Let {
                                 var,
                                 val: ir::Expr::Var(init),
@@ -462,5 +522,9 @@ pub fn parse_str(s: &str) -> Function {
         name,
         parameters: params,
         body: block,
+        ret: syn_ty_to_ir_ty(match &st.sig.output {
+            syn::ReturnType::Default => panic!("function must return value!"),
+            syn::ReturnType::Type(_, ty) => &**ty,
+        }),
     }
 }

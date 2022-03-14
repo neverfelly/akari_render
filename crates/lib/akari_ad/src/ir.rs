@@ -58,25 +58,40 @@ pub enum PrimFunc {
     Le,
     Ge,
     Load,
-    Extract,
-    Insert,
+    Tuple,
 }
+
 
 #[derive(Clone, Debug)]
 pub enum Func {
     PrimFunc(PrimFunc),
-    Named(Path),
+    Named { path: Path, is_method: bool },
 }
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub enum Var {
     Id(usize),
     Named(Path),
 }
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub enum Member {
+    Named(String),
+    UnNamed(usize),
+}
+impl From<&syn::Member> for Member {
+    fn from(m: &syn::Member) -> Self {
+        match m {
+            syn::Member::Named(x) => Self::Named(x.to_string()),
+            syn::Member::Unnamed(i) => Self::UnNamed(i.index as usize),
+        }
+    }
+}
 #[derive(Clone, Debug)]
 pub enum Expr {
     Atom(Atom),
     Var(Var),
     Call(Func, Vec<Var>),
+    Extract(Var, Member),
+    Insert(Var, Member, Var),
     IfThenElse {
         cond: Var,
         then: Box<Block>,
