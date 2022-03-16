@@ -120,3 +120,7 @@ macro_rules! cond_dbg {
         }
     };
 }
+
+#[repr(C)]
+pub struct Foo{pub x:f32, pub y:f32, pub c:Vec4,}
+#[no_mangle] pub extern fn foo(foo:Foo){}

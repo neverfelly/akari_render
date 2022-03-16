@@ -48,6 +48,7 @@ mod test {
 pub const CIE_Y_INTEGRAL: f32 = 106.85694885253906;
 pub const INV_CIE_Y_INTEGRAL: f32 = 1.0 / CIE_Y_INTEGRAL;
 #[derive(Clone, Debug)] // Mark as non-copy to as we need to keep track of lambda
+#[repr(C)]
 pub struct SampledWavelengths {
     lambda: Vec4,
     pdf: Vec4,

@@ -6,7 +6,7 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-akari_ad = {path="../akari_ad"}
+akari_ad = {path="../akari_adjit"}
 syn = {version = "1.0.86", features = ["full","extra-traits"]}
 proc-macro2 = { version="1.0.36", features= ["span-locations"] }
 
