@@ -127,7 +127,7 @@ impl AdCodeGen {
     }
     fn lift_type(&self, ty: &ir::Type) -> String {
         match ty {
-            ir::Type::Path(p) => format!("akari_ad::runtime::Dual<{}>", p.0.join("::")),
+            ir::Type::Path(p) => format!("akari_adjit::runtime::Dual<{}>", p.0.join("::")),
             ir::Type::Tuple(_) => todo!(),
             ir::Type::Slice(_) => todo!(),
             ir::Type::Inferred => todo!(),
@@ -164,6 +164,7 @@ impl AdCodeGen {
     pub fn gen_forward(&mut self, f: &Function) -> String {
         self.add_vars(&f.body);
 
+
         let mut out = String::new();
         let params: Vec<_> = f
             .parameters
@@ -172,11 +173,11 @@ impl AdCodeGen {
             .collect();
         write!(
             &mut out,
-            "pub fn {}(ctx:&mut akari_ad::runtime::AdContext, {}) -> ({}, impl Fn(), impl Fn()) {{\n {} unsafe {{ {}",
+            "pub fn {}(ctx:&mut akari_adjit::runtime::AdContext, {}) -> ({}, impl Fn(), impl Fn()) {{\n {} unsafe {{ {}",
             self.lift_func_name(&f.name),
             params.join(","),
             self.lift_type(&f.ret),
-            "using akari_ad::runtime::*;using akari_ad::traits::*;\n",
+            "using akari_adjit::runtime::*;using akari_adjit::traits::*;\n",
             self.gen_prolog()
         )
         .unwrap();
